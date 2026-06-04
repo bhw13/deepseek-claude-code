@@ -48,11 +48,11 @@ _DEEPSEEK_CLAUDE_CODE_MODEL_ENV = {
     "MODEL_SONNET": "deepseek/deepseek-v4-pro",
     "MODEL_SONNET_EFFORT": "high",
     "MODEL_HAIKU": "deepseek/deepseek-v4-flash",
-    "MODEL_HAIKU_EFFORT": "medium",
+    "MODEL_HAIKU_EFFORT": "high",
 }
 _DEEPSEEK_CLAUDE_CODE_SUMMARY = (
     "DeepSeek Claude Code mapping: opus=deepseek-v4-pro@max, "
-    "sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@medium"
+    "sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@high"
 )
 
 
@@ -155,7 +155,7 @@ def serve_deepseek_and_launch_claude() -> None:
     """`ds`: start the DeepSeek-routed proxy (if needed) and launch Claude Code.
 
     Applies the DeepSeek per-tier mapping (opus=deepseek-v4-pro@max effort,
-    sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@medium), ensures a proxy
+    sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@high), ensures a proxy
     is reachable, then runs Claude Code in the foreground. A proxy started by this
     command is stopped when Claude Code exits; an already-running proxy is reused.
     """

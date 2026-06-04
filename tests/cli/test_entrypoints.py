@@ -213,7 +213,7 @@ def test_serve_deepseek_and_launch_claude_starts_proxy_then_client() -> None:
 
         assert os.environ["MODEL_OPUS_EFFORT"] == "max"
         assert os.environ["MODEL_SONNET_EFFORT"] == "high"
-        assert os.environ["MODEL_HAIKU_EFFORT"] == "medium"
+        assert os.environ["MODEL_HAIKU_EFFORT"] == "high"
     spawn.assert_called_once()
     ready.assert_called_once()
     launch.assert_called_once_with()
@@ -286,7 +286,7 @@ def test_deepseek_claude_code_env_resolves_tiers_and_effort() -> None:
         )
         assert settings.resolve_effort("claude-opus-4-8") == "max"
         assert settings.resolve_effort("claude-sonnet-4-6") == "high"
-        assert settings.resolve_effort("claude-haiku-4-5") == "medium"
+        assert settings.resolve_effort("claude-haiku-4-5") == "high"
 
 
 def test_schedule_open_admin_browser_opens_when_health_ready(

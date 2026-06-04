@@ -161,6 +161,32 @@ Run the DeepSeek shortcut from the repo root with:
 uv run fcc-deepseek
 ```
 
+#### One command: proxy + Claude Code with `ds`
+
+`ds` is a single command that starts the DeepSeek-routed proxy **and** launches
+Claude Code together (no separate `fcc-server` terminal needed):
+
+```bash
+ds
+```
+
+It maps Claude Code's tiers to DeepSeek and differentiates them by reasoning
+effort (forwarded to DeepSeek as `output_config.effort`). `deepseek-v4-max` does
+not exist, so Opus and Sonnet both use `deepseek-v4-pro` at different effort:
+
+| Claude tier | DeepSeek model     | Effort |
+| ----------- | ------------------ | ------ |
+| Opus        | `deepseek-v4-pro`  | `max`  |
+| Sonnet      | `deepseek-v4-pro`  | `high` |
+| Haiku       | `deepseek-v4-flash`| `high` |
+
+`ds` starts the proxy as a background process (logs to `~/.fcc/logs/server.log`,
+so they do not corrupt the Claude Code TUI) and stops it when Claude Code exits;
+an already-running proxy is reused. Set `DEEPSEEK_API_KEY` in the Admin UI first.
+Per-tier effort is configurable for any provider that honors it via
+`MODEL_EFFORT` / `MODEL_OPUS_EFFORT` / `MODEL_SONNET_EFFORT` / `MODEL_HAIKU_EFFORT`
+(`low` | `medium` | `high` | `xhigh` | `max`).
+
 ### 5. [Mistral La Plateforme](https://console.mistral.ai/)
 
 [Mistral](https://mistral.ai) hosts an OpenAI-compatible Chat Completions API at `https://api.mistral.ai/v1`. Activate the **Experiment** plan on [console.mistral.ai](https://console.mistral.ai/) for free-tier API access with rate limits (upgrade for higher quotas).
@@ -505,6 +531,8 @@ Run them in that order before pushing. CI enforces the same checks.
 - `fcc-server`: starts the proxy with configured host and port.
 - `fcc-init`: optional advanced scaffold for `~/.fcc/.env`; prefer the **Admin UI** for normal configuration.
 - `fcc-claude`: launches Claude Code with the configured local proxy URL, auth token, model discovery flag, and a 190k `CLAUDE_CODE_AUTO_COMPACT_WINDOW` for auto-compaction.
+- `fcc-deepseek`: starts the proxy with `MODEL=deepseek/deepseek-chat`.
+- `ds`: one command — starts the DeepSeek-routed proxy (per-tier effort mapping) and launches Claude Code, then stops the proxy on exit. See [DeepSeek → `ds`](#one-command-proxy--claude-code-with-ds).
 - `free-claude-code`: compatibility alias for `fcc-server`.
 
 ### 5. Extending
@@ -513,6 +541,46 @@ Run them in that order before pushing. CI enforces the same checks.
 - Add Anthropic Messages providers by extending `AnthropicMessagesTransport`.
 - Register provider metadata in `config.provider_catalog` and factory wiring in `providers.registry`.
 - Add messaging platforms by implementing the `MessagingPlatform` interface in `messaging/`.
+
+### 6. GitHub Actions: live DeepSeek smoke tests
+
+The default `CI` workflow runs only hermetic checks (ruff, ty, pytest) and needs
+no API keys. A separate **manual** workflow runs live smoke tests against the
+real DeepSeek API using a repository secret.
+
+**1. Add your DeepSeek key as an Actions secret**
+
+In your fork/repo on GitHub: **Settings → Secrets and variables → Actions → New
+repository secret**.
+
+- **Name:** `DEEPSEEK_API_KEY`
+- **Value:** your key from [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+
+The secret is encrypted, never included in a clone or in git history, and is not
+exposed to workflows triggered by pull requests from forks. It is **not** needed
+to run the proxy locally (that key lives in `~/.fcc/.env`); it is only for CI.
+
+Or set it from the CLI with [`gh`](https://cli.github.com/):
+
+```bash
+gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>
+```
+
+**2. Run the live smoke workflow**
+
+The [`DeepSeek Live Smoke`](.github/workflows/deepseek-smoke.yml) workflow is
+`workflow_dispatch` (manual) so it never spends your DeepSeek quota on routine
+pushes. Trigger it from the **Actions** tab → **DeepSeek Live Smoke** → **Run
+workflow**, or:
+
+```bash
+gh workflow run "DeepSeek Live Smoke" --repo <owner>/<repo>
+```
+
+It exports the secret as `DEEPSEEK_API_KEY` and runs the DeepSeek provider smoke
+scenarios (`FCC_LIVE_SMOKE=1`, `FCC_SMOKE_TARGETS=providers`,
+`FCC_SMOKE_PROVIDER_MATRIX=deepseek`). See [`smoke/README.md`](smoke/README.md)
+for the full live-smoke harness.
 
 ## Contributing
 
