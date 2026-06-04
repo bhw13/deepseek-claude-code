@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🤖 Free Claude Code
+# 🤖 DeepSeek Claude Code
 
-Use Claude Code CLI, VS Code, JetBrains ACP, or chat bots through your own Anthropic-compatible proxy.
+Run Claude Code in your terminal on **DeepSeek** — one command (`ds`) that routes Claude Code's Opus/Sonnet/Haiku model names to DeepSeek models, with per-tier reasoning effort.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
@@ -12,14 +12,16 @@ Use Claude Code CLI, VS Code, JetBrains ACP, or chat bots through your own Anthr
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 [![Logging: Loguru](https://img.shields.io/badge/logging-loguru-4ecdc4.svg?style=for-the-badge)](https://github.com/Delgan/loguru)
 
-Free Claude Code routes Anthropic Messages API traffic from Claude Code to any provider. It keeps Claude Code's client-side protocol stable while letting you choose free, paid, or local models.
+Under the hood it routes Anthropic Messages API traffic from Claude Code to your chosen provider, keeping Claude Code's client-side protocol stable. This repo focuses that on DeepSeek; the underlying proxy still supports many other providers (see [Providers](#choose-a-provider)).
 
 [Quick Start](#quick-start) · [Providers](#choose-a-provider) · [Clients](#connect-claude-code) · [Integrations](#optional-integrations) · [Development](#development)
 
 </div>
 
+> **Credit:** Built on [**free-claude-code**](https://github.com/Alishahryar1/free-claude-code) by [Alishahryar1](https://github.com/Alishahryar1) — a general Anthropic-compatible proxy supporting many providers. This fork (`deepseek-claude-code`) configures it for DeepSeek and adds the one-command `ds` launcher with per-tier effort routing.
+
 <div align="center">
-  <img src="assets/pic.png" alt="Free Claude Code in action" width="700">
+  <img src="assets/pic.png" alt="DeepSeek Claude Code in action" width="700">
 </div>
 
 <a id="model-picker"></a>
