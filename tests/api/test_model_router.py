@@ -18,6 +18,10 @@ def settings():
     settings.enable_opus_thinking = None
     settings.enable_sonnet_thinking = None
     settings.enable_haiku_thinking = None
+    settings.model_effort = None
+    settings.model_opus_effort = None
+    settings.model_sonnet_effort = None
+    settings.model_haiku_effort = None
     return settings
 
 
@@ -189,6 +193,65 @@ def test_model_router_routes_token_count_request(settings):
 
     assert routed.request.model == "qwen2.5-7b"
     assert request.model == "claude-3-haiku-20240307"
+
+
+def test_model_router_resolves_per_tier_effort(settings):
+    settings.model_opus_effort = "max"
+    settings.model_sonnet_effort = "high"
+    settings.model_haiku_effort = "medium"
+
+    router = ModelRouter(settings)
+
+    assert router.resolve("claude-opus-4-20250514").effort == "max"
+    assert router.resolve("claude-sonnet-4-20250514").effort == "high"
+    assert router.resolve("claude-3-haiku-20240307").effort == "medium"
+    # No tier match and no MODEL_EFFORT fallback -> no effort.
+    assert router.resolve("claude-2.1").effort is None
+
+
+def test_model_router_injects_effort_into_output_config(settings):
+    settings.model_sonnet_effort = "high"
+
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+        )
+    )
+
+    assert routed.request.output_config == {"effort": "high"}
+    assert routed.resolved.effort == "high"
+
+
+def test_model_router_overrides_existing_effort_and_preserves_other_keys(settings):
+    settings.model_opus_effort = "max"
+
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="claude-opus-4-20250514",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+            output_config={"effort": "low", "verbosity": "high"},
+        )
+    )
+
+    assert routed.request.output_config == {"effort": "max", "verbosity": "high"}
+
+
+def test_model_router_leaves_output_config_untouched_without_effort(settings):
+    routed = ModelRouter(settings).resolve_messages_request(
+        MessagesRequest(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            messages=[Message(role="user", content="hello")],
+            output_config={"effort": "low"},
+        )
+    )
+
+    # No effort configured -> the client's own output_config flows through as-is.
+    assert routed.request.output_config == {"effort": "low"}
+    assert routed.resolved.effort is None
 
 
 def test_model_router_logs_mapping(settings):

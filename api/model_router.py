@@ -20,6 +20,7 @@ class ResolvedModel:
     provider_model: str
     provider_model_ref: str
     thinking_enabled: bool
+    effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,7 @@ class ModelRouter:
         self._settings = settings
 
     def resolve(self, claude_model_name: str) -> ResolvedModel:
+        effort = self._settings.resolve_effort(claude_model_name)
         (
             direct_provider_id,
             direct_provider_model,
@@ -53,11 +55,12 @@ class ModelRouter:
                 else self._settings.resolve_thinking(direct_provider_model)
             )
             logger.debug(
-                "MODEL DIRECT: '{}' -> provider='{}' model='{}' thinking={}",
+                "MODEL DIRECT: '{}' -> provider='{}' model='{}' thinking={} effort={}",
                 claude_model_name,
                 direct_provider_id,
                 direct_provider_model,
                 thinking_enabled,
+                effort,
             )
             return ResolvedModel(
                 original_model=claude_model_name,
@@ -65,6 +68,7 @@ class ModelRouter:
                 provider_model=direct_provider_model,
                 provider_model_ref=claude_model_name,
                 thinking_enabled=thinking_enabled,
+                effort=effort,
             )
 
         provider_model_ref = self._settings.resolve_model(claude_model_name)
@@ -81,6 +85,7 @@ class ModelRouter:
             provider_model=provider_model,
             provider_model_ref=provider_model_ref,
             thinking_enabled=thinking_enabled,
+            effort=effort,
         )
 
     def _direct_provider_model(
@@ -112,6 +117,10 @@ class ModelRouter:
         resolved = self.resolve(request.model)
         routed = request.model_copy(deep=True)
         routed.model = resolved.provider_model
+        if resolved.effort is not None:
+            output_config = dict(routed.output_config or {})
+            output_config["effort"] = resolved.effort
+            routed.output_config = output_config
         return RoutedMessagesRequest(request=routed, resolved=resolved)
 
     def resolve_token_count_request(

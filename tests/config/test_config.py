@@ -818,6 +818,67 @@ class TestPerModelMapping:
         )
         assert Settings.parse_model_name("cerebras/llama3.1-8b") == "llama3.1-8b"
 
+    def test_effort_fields_default_none(self):
+        """Per-tier effort fields default to None."""
+        from config.settings import Settings
+
+        s = Settings()
+        assert s.model_effort is None
+        assert s.model_opus_effort is None
+        assert s.model_sonnet_effort is None
+        assert s.model_haiku_effort is None
+
+    def test_effort_from_env_normalized(self, monkeypatch):
+        """Effort env vars load and normalize to lowercase."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("MODEL_OPUS_EFFORT", "MAX")
+        monkeypatch.setenv("MODEL_SONNET_EFFORT", "high")
+        s = Settings()
+        assert s.model_opus_effort == "max"
+        assert s.model_sonnet_effort == "high"
+
+    def test_empty_effort_env_is_unset(self, monkeypatch):
+        """Blank effort env vars are treated as unset."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("MODEL_OPUS_EFFORT", "")
+        s = Settings()
+        assert s.model_opus_effort is None
+
+    def test_invalid_effort_raises(self, monkeypatch):
+        """An unsupported effort level raises ValidationError."""
+        from config.settings import Settings
+
+        monkeypatch.setenv("MODEL_OPUS_EFFORT", "turbo")
+        with pytest.raises(ValidationError, match="Effort must be one of"):
+            Settings()
+
+    def test_resolve_effort_uses_tiers_then_fallback(self):
+        """resolve_effort applies tier override, then MODEL_EFFORT, then None."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.model_effort = "low"
+        s.model_opus_effort = "max"
+        s.model_haiku_effort = "medium"
+        assert s.resolve_effort("claude-opus-4-20250514") == "max"
+        assert s.resolve_effort("claude-3-haiku-20240307") == "medium"
+        # Sonnet has no override -> MODEL_EFFORT fallback.
+        assert s.resolve_effort("claude-sonnet-4-20250514") == "low"
+        assert s.resolve_effort("unknown-model") == "low"
+
+    def test_resolve_effort_none_when_unconfigured(self):
+        """resolve_effort returns None when nothing is configured."""
+        from config.settings import Settings
+
+        s = Settings()
+        s.model_effort = None
+        s.model_opus_effort = None
+        s.model_sonnet_effort = None
+        s.model_haiku_effort = None
+        assert s.resolve_effort("claude-opus-4-20250514") is None
+
     def test_configured_chat_model_refs_collects_unique_models_with_sources(
         self, monkeypatch
     ):

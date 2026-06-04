@@ -24,12 +24,36 @@ from cli.process_registry import (
     register_pid,
     unregister_pid,
 )
-from config.paths import config_dir_path, legacy_env_paths, managed_env_path
+from config.paths import (
+    config_dir_path,
+    legacy_env_paths,
+    managed_env_path,
+    server_log_path,
+)
 from config.settings import Settings, get_settings
 
 PROXY_PREFLIGHT_PATH = "/health"
 PROXY_PREFLIGHT_TIMEOUT_SECONDS = 1.5
 SERVER_GRACEFUL_SHUTDOWN_SECONDS = 5
+PROXY_READY_TIMEOUT_SECONDS = 30.0
+PROXY_READY_POLL_INTERVAL_SECONDS = 0.2
+
+# DeepSeek per-tier routing for the consolidated `ds` command. deepseek-v4-max
+# does not exist, so opus and sonnet share deepseek-v4-pro and are differentiated
+# by reasoning effort (forwarded as output_config.effort by the proxy).
+_DEEPSEEK_CLAUDE_CODE_MODEL_ENV = {
+    "MODEL": "deepseek/deepseek-v4-pro",
+    "MODEL_OPUS": "deepseek/deepseek-v4-pro",
+    "MODEL_OPUS_EFFORT": "max",
+    "MODEL_SONNET": "deepseek/deepseek-v4-pro",
+    "MODEL_SONNET_EFFORT": "high",
+    "MODEL_HAIKU": "deepseek/deepseek-v4-flash",
+    "MODEL_HAIKU_EFFORT": "medium",
+}
+_DEEPSEEK_CLAUDE_CODE_SUMMARY = (
+    "DeepSeek Claude Code mapping: opus=deepseek-v4-pro@max, "
+    "sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@medium"
+)
 
 
 def _load_env_template() -> str:
@@ -65,6 +89,109 @@ def serve() -> None:
             return
     finally:
         kill_all_best_effort()
+
+
+def _apply_model_env(model_env: Mapping[str, str]) -> None:
+    """Apply model routing env overrides for the current process."""
+    for key, value in model_env.items():
+        os.environ[key] = value
+
+
+def _serve_with_model_env(model_env: Mapping[str, str], *, summary: str) -> None:
+    """Apply model routing env overrides, then start the server."""
+    _apply_model_env(model_env)
+    print(summary)
+    serve()
+
+
+def serve_deepseek() -> None:
+    """Start the FastAPI server with the DeepSeek model shorthand."""
+    _serve_with_model_env(
+        {"MODEL": "deepseek/deepseek-chat"},
+        summary="Starting server with DeepSeek model: deepseek/deepseek-chat",
+    )
+
+
+def _await_proxy_ready(proxy_root_url: str) -> bool:
+    """Poll the proxy health endpoint until reachable or the timeout elapses."""
+    deadline = time.monotonic() + PROXY_READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if _preflight_proxy(proxy_root_url) is None:
+            return True
+        time.sleep(PROXY_READY_POLL_INTERVAL_SECONDS)
+    return False
+
+
+def _spawn_background_server(env: Mapping[str, str]) -> subprocess.Popen[bytes]:
+    """Start ``serve()`` as a detached child with output redirected to the log.
+
+    The child runs in its own process group so terminal Ctrl-C (used to interrupt
+    Claude Code generations) does not also tear the proxy down; it is stopped
+    explicitly when the foreground Claude Code process exits.
+    """
+    log_path = server_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [sys.executable, "-c", "from cli.entrypoints import serve; serve()"]
+    creationflags = 0
+    start_new_session = False
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        start_new_session = True
+    with open(log_path, "ab") as log_handle:
+        process = subprocess.Popen(
+            command,
+            stdout=log_handle,
+            stderr=log_handle,
+            env=dict(env),
+            creationflags=creationflags,
+            start_new_session=start_new_session,
+        )
+    register_pid(process.pid)
+    return process
+
+
+def serve_deepseek_and_launch_claude() -> None:
+    """`ds`: start the DeepSeek-routed proxy (if needed) and launch Claude Code.
+
+    Applies the DeepSeek per-tier mapping (opus=deepseek-v4-pro@max effort,
+    sonnet=deepseek-v4-pro@high, haiku=deepseek-v4-flash@medium), ensures a proxy
+    is reachable, then runs Claude Code in the foreground. A proxy started by this
+    command is stopped when Claude Code exits; an already-running proxy is reused.
+    """
+    _apply_model_env(_DEEPSEEK_CLAUDE_CODE_MODEL_ENV)
+    print(_DEEPSEEK_CLAUDE_CODE_SUMMARY)
+
+    settings = get_settings()
+    proxy_root_url = local_proxy_root_url(settings)
+
+    server_process: subprocess.Popen[bytes] | None = None
+    if _preflight_proxy(proxy_root_url) is None:
+        print(
+            f"Using the proxy already running at {proxy_root_url} "
+            "(its own routing applies; restart it with `ds` for DeepSeek routing)."
+        )
+    else:
+        server_env = os.environ.copy()
+        server_env.setdefault("FCC_OPEN_BROWSER", "0")
+        print(f"Starting Free Claude Code proxy (logs: {server_log_path()})")
+        server_process = _spawn_background_server(server_env)
+        if not _await_proxy_ready(proxy_root_url):
+            print(
+                f"Proxy did not become ready at {proxy_root_url}; "
+                f"check {server_log_path()}.",
+                file=sys.stderr,
+            )
+            kill_pid_tree_best_effort(server_process.pid)
+            unregister_pid(server_process.pid)
+            raise SystemExit(1)
+
+    try:
+        launch_claude()
+    finally:
+        if server_process is not None:
+            kill_pid_tree_best_effort(server_process.pid)
+            unregister_pid(server_process.pid)
 
 
 def _admin_browser_open_enabled() -> bool:

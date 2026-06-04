@@ -437,6 +437,37 @@ FIELDS: tuple[ConfigFieldSpec, ...] = (
         description="Optional provider/model route for Haiku requests.",
     ),
     ConfigFieldSpec(
+        "MODEL_EFFORT",
+        "Default Effort",
+        "models",
+        settings_attr="model_effort",
+        description=(
+            "Optional reasoning effort (low/medium/high/xhigh/max) for providers "
+            "that support output_config.effort, e.g. DeepSeek."
+        ),
+    ),
+    ConfigFieldSpec(
+        "MODEL_OPUS_EFFORT",
+        "Opus Effort",
+        "models",
+        settings_attr="model_opus_effort",
+        description="Blank inherits Default Effort.",
+    ),
+    ConfigFieldSpec(
+        "MODEL_SONNET_EFFORT",
+        "Sonnet Effort",
+        "models",
+        settings_attr="model_sonnet_effort",
+        description="Blank inherits Default Effort.",
+    ),
+    ConfigFieldSpec(
+        "MODEL_HAIKU_EFFORT",
+        "Haiku Effort",
+        "models",
+        settings_attr="model_haiku_effort",
+        description="Blank inherits Default Effort.",
+    ),
+    ConfigFieldSpec(
         "ENABLE_MODEL_THINKING",
         "Enable Thinking",
         "thinking",

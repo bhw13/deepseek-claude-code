@@ -155,6 +155,12 @@ In the Admin UI, paste it into `DEEPSEEK_API_KEY`, then set `MODEL` to a DeepSee
 
 This provider uses DeepSeek's Anthropic-compatible endpoint, not the OpenAI chat-completions endpoint.
 
+Run the DeepSeek shortcut from the repo root with:
+
+```bash
+uv run fcc-deepseek
+```
+
 ### 5. [Mistral La Plateforme](https://console.mistral.ai/)
 
 [Mistral](https://mistral.ai) hosts an OpenAI-compatible Chat Completions API at `https://api.mistral.ai/v1`. Activate the **Experiment** plan on [console.mistral.ai](https://console.mistral.ai/) for free-tier API access with rate limits (upgrade for higher quotas).

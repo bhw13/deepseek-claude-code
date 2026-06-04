@@ -16,6 +16,10 @@ from .nim import NimSettings
 from .paths import default_claude_workspace_path, managed_env_path
 from .provider_ids import SUPPORTED_PROVIDER_IDS
 
+# Reasoning effort levels accepted by providers that honor ``output_config.effort``
+# (mirrors Claude Code's own effort vocabulary; DeepSeek's guide recommends "max").
+ALLOWED_EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
 
 @dataclass(frozen=True, slots=True)
 class ConfiguredChatModelRef:
@@ -196,6 +200,20 @@ class Settings(BaseSettings):
         default=None, validation_alias="ENABLE_HAIKU_THINKING"
     )
 
+    # ==================== Reasoning Effort ====================
+    # Per-tier reasoning effort forwarded as ``output_config.effort`` to providers
+    # that support it (e.g. DeepSeek). Blank per-tier values inherit MODEL_EFFORT.
+    model_effort: str | None = Field(default=None, validation_alias="MODEL_EFFORT")
+    model_opus_effort: str | None = Field(
+        default=None, validation_alias="MODEL_OPUS_EFFORT"
+    )
+    model_sonnet_effort: str | None = Field(
+        default=None, validation_alias="MODEL_SONNET_EFFORT"
+    )
+    model_haiku_effort: str | None = Field(
+        default=None, validation_alias="MODEL_HAIKU_EFFORT"
+    )
+
     # ==================== HTTP Client Timeouts ====================
     http_read_timeout: float = Field(
         default=120.0, validation_alias="HTTP_READ_TIMEOUT"
@@ -315,6 +333,10 @@ class Settings(BaseSettings):
         "enable_opus_thinking",
         "enable_sonnet_thinking",
         "enable_haiku_thinking",
+        "model_effort",
+        "model_opus_effort",
+        "model_sonnet_effort",
+        "model_haiku_effort",
         mode="before",
     )
     @classmethod
@@ -322,6 +344,22 @@ class Settings(BaseSettings):
         if v == "":
             return None
         return v
+
+    @field_validator(
+        "model_effort",
+        "model_opus_effort",
+        "model_sonnet_effort",
+        "model_haiku_effort",
+    )
+    @classmethod
+    def validate_effort_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if normalized not in ALLOWED_EFFORT_LEVELS:
+            allowed = ", ".join(sorted(ALLOWED_EFFORT_LEVELS))
+            raise ValueError(f"Effort must be one of: {allowed}. Got {v!r}")
+        return normalized
 
     @field_validator("max_message_log_entries_per_chat", mode="before")
     @classmethod
@@ -500,6 +538,21 @@ class Settings(BaseSettings):
         if "sonnet" in name_lower and self.enable_sonnet_thinking is not None:
             return self.enable_sonnet_thinking
         return self.enable_model_thinking
+
+    def resolve_effort(self, claude_model_name: str) -> str | None:
+        """Resolve per-tier reasoning effort for an incoming Claude model name.
+
+        Returns the tier override when set, else the MODEL_EFFORT fallback, else
+        ``None`` (leave the request's effort untouched).
+        """
+        name_lower = claude_model_name.lower()
+        if "opus" in name_lower and self.model_opus_effort is not None:
+            return self.model_opus_effort
+        if "haiku" in name_lower and self.model_haiku_effort is not None:
+            return self.model_haiku_effort
+        if "sonnet" in name_lower and self.model_sonnet_effort is not None:
+            return self.model_sonnet_effort
+        return self.model_effort
 
     def web_fetch_allowed_scheme_set(self) -> frozenset[str]:
         """Return normalized schemes allowed for web_fetch."""

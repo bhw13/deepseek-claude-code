@@ -94,6 +94,18 @@ def test_build_request_body_native_shape(deepseek_provider):
     assert body["max_tokens"] == 100
 
 
+def test_build_request_body_forwards_effort(deepseek_provider):
+    """Per-tier effort injected as output_config.effort reaches the DeepSeek body."""
+    request = MessagesRequest(
+        model="deepseek-v4-pro",
+        max_tokens=100,
+        messages=[Message(role="user", content="Hello")],
+        output_config={"effort": "max"},
+    )
+    body = deepseek_provider._build_request_body(request)
+    assert body["output_config"] == {"effort": "max"}
+
+
 def test_build_request_body_default_max_tokens(deepseek_provider):
     request = MessagesRequest(
         model="m",

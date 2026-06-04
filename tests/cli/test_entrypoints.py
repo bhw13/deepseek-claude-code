@@ -1,5 +1,6 @@
 """Tests for cli/entrypoints.py — fcc-init scaffolding logic."""
 
+import os
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -156,7 +157,136 @@ def test_cli_scripts_are_registered() -> None:
     scripts = pyproject["project"]["scripts"]
     assert scripts["fcc-server"] == "cli.entrypoints:serve"
     assert scripts["free-claude-code"] == "cli.entrypoints:serve"
+    assert scripts["fcc-deepseek"] == "cli.entrypoints:serve_deepseek"
+    assert scripts["ds"] == "cli.entrypoints:serve_deepseek_and_launch_claude"
     assert scripts["fcc-claude"] == "cli.entrypoints:launch_claude"
+
+
+def test_serve_deepseek_overrides_model_and_runs_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cli import entrypoints
+
+    monkeypatch.delenv("MODEL", raising=False)
+    with patch.object(entrypoints, "serve") as serve_mock:
+        entrypoints.serve_deepseek()
+
+    assert os.environ["MODEL"] == "deepseek/deepseek-chat"
+    serve_mock.assert_called_once()
+
+
+_DEEPSEEK_TIER_ENV_KEYS = (
+    "MODEL",
+    "MODEL_OPUS",
+    "MODEL_OPUS_EFFORT",
+    "MODEL_SONNET",
+    "MODEL_SONNET_EFFORT",
+    "MODEL_HAIKU",
+    "MODEL_HAIKU_EFFORT",
+)
+
+
+def test_serve_deepseek_and_launch_claude_starts_proxy_then_client() -> None:
+    """`ds` spawns the proxy when none is running, waits, launches Claude, cleans up."""
+    from cli import entrypoints
+
+    server_process = MagicMock()
+    server_process.pid = 4242
+
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch.object(entrypoints, "get_settings", return_value=_launcher_settings()),
+        patch.object(
+            entrypoints, "_preflight_proxy", return_value="connection refused"
+        ),
+        patch.object(
+            entrypoints, "_spawn_background_server", return_value=server_process
+        ) as spawn,
+        patch.object(entrypoints, "_await_proxy_ready", return_value=True) as ready,
+        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
+        patch.object(entrypoints, "unregister_pid") as unregister,
+    ):
+        for key in _DEEPSEEK_TIER_ENV_KEYS:
+            os.environ.pop(key, None)
+        entrypoints.serve_deepseek_and_launch_claude()
+
+        assert os.environ["MODEL_OPUS_EFFORT"] == "max"
+        assert os.environ["MODEL_SONNET_EFFORT"] == "high"
+        assert os.environ["MODEL_HAIKU_EFFORT"] == "medium"
+    spawn.assert_called_once()
+    ready.assert_called_once()
+    launch.assert_called_once_with()
+    kill_tree.assert_called_once_with(4242)
+    unregister.assert_called_once_with(4242)
+
+
+def test_serve_deepseek_and_launch_claude_reuses_running_proxy() -> None:
+    """A reachable proxy is reused: no spawn, and it is not torn down on exit."""
+    from cli import entrypoints
+
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch.object(entrypoints, "get_settings", return_value=_launcher_settings()),
+        patch.object(entrypoints, "_preflight_proxy", return_value=None),
+        patch.object(entrypoints, "_spawn_background_server") as spawn,
+        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
+    ):
+        entrypoints.serve_deepseek_and_launch_claude()
+
+    spawn.assert_not_called()
+    launch.assert_called_once_with()
+    kill_tree.assert_not_called()
+
+
+def test_serve_deepseek_and_launch_claude_exits_when_proxy_unready() -> None:
+    """If the spawned proxy never becomes ready, it is killed and the command exits 1."""
+    from cli import entrypoints
+
+    server_process = MagicMock()
+    server_process.pid = 5151
+
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch.object(entrypoints, "get_settings", return_value=_launcher_settings()),
+        patch.object(
+            entrypoints, "_preflight_proxy", return_value="connection refused"
+        ),
+        patch.object(
+            entrypoints, "_spawn_background_server", return_value=server_process
+        ),
+        patch.object(entrypoints, "_await_proxy_ready", return_value=False),
+        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
+        patch.object(entrypoints, "unregister_pid"),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        entrypoints.serve_deepseek_and_launch_claude()
+
+    assert exc_info.value.code == 1
+    launch.assert_not_called()
+    kill_tree.assert_called_once_with(5151)
+
+
+def test_deepseek_claude_code_env_resolves_tiers_and_effort() -> None:
+    """The `ds` env mapping resolves Claude tiers to DeepSeek models and effort."""
+    from cli import entrypoints
+
+    with patch.dict(os.environ, {}, clear=False):
+        for key in _DEEPSEEK_TIER_ENV_KEYS:
+            os.environ.pop(key, None)
+        entrypoints._apply_model_env(entrypoints._DEEPSEEK_CLAUDE_CODE_MODEL_ENV)
+        settings = Settings()
+
+        assert settings.resolve_model("claude-opus-4-8") == "deepseek/deepseek-v4-pro"
+        assert settings.resolve_model("claude-sonnet-4-6") == "deepseek/deepseek-v4-pro"
+        assert (
+            settings.resolve_model("claude-haiku-4-5") == "deepseek/deepseek-v4-flash"
+        )
+        assert settings.resolve_effort("claude-opus-4-8") == "max"
+        assert settings.resolve_effort("claude-sonnet-4-6") == "high"
+        assert settings.resolve_effort("claude-haiku-4-5") == "medium"
 
 
 def test_schedule_open_admin_browser_opens_when_health_ready(
