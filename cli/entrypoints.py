@@ -296,6 +296,21 @@ def _migrate_legacy_env_if_missing() -> Path | None:
     return None
 
 
+# These env vars mark a running Claude Code session. Inheriting them causes a
+# child `claude` process to think it is nested inside an existing session and
+# switch to --print (non-interactive) mode, breaking interactive `ds` launches.
+_CLAUDE_SESSION_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_TMPDIR",
+        "AI_AGENT",
+    }
+)
+
+
 def _claude_child_env(
     settings: Settings, base_env: Mapping[str, str]
 ) -> dict[str, str]:
@@ -304,7 +319,7 @@ def _claude_child_env(
     env = {
         key: value
         for key, value in base_env.items()
-        if not key.startswith("ANTHROPIC_")
+        if not key.startswith("ANTHROPIC_") and key not in _CLAUDE_SESSION_ENV_KEYS
     }
     env.pop("ANTHROPIC_API_KEY", None)
     env["ANTHROPIC_BASE_URL"] = local_proxy_root_url(settings)
