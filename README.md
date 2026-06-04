@@ -542,45 +542,36 @@ Run them in that order before pushing. CI enforces the same checks.
 - Register provider metadata in `config.provider_catalog` and factory wiring in `providers.registry`.
 - Add messaging platforms by implementing the `MessagingPlatform` interface in `messaging/`.
 
-### 6. GitHub Actions: live DeepSeek smoke tests
+### 6. Run in a GitHub Codespace
 
-The default `CI` workflow runs only hermetic checks (ruff, ty, pytest) and needs
-no API keys. A separate **manual** workflow runs live smoke tests against the
-real DeepSeek API using a repository secret.
+The proxy reads `DEEPSEEK_API_KEY` from the environment, and GitHub Codespaces
+injects **Codespaces secrets** as environment variables — so `ds` works in a
+Codespace with no `.env` file.
 
-**1. Add your DeepSeek key as an Actions secret**
+**1. Add your key as a Codespaces secret**
 
-In your fork/repo on GitHub: **Settings → Secrets and variables → Actions → New
-repository secret**.
+On GitHub: **Settings → Secrets and variables → Codespaces → New secret** (your
+account, scoped to this repo) or the repo's **Settings → Secrets and variables →
+Codespaces**.
 
 - **Name:** `DEEPSEEK_API_KEY`
 - **Value:** your key from [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
 
-The secret is encrypted, never included in a clone or in git history, and is not
-exposed to workflows triggered by pull requests from forks. It is **not** needed
-to run the proxy locally (that key lives in `~/.fcc/.env`); it is only for CI.
+Use the **Codespaces** tab, not **Actions** — they are separate stores. The
+secret is encrypted and never committed; cloning the repo never exposes it.
 
-Or set it from the CLI with [`gh`](https://cli.github.com/):
+**2. Open a Codespace and run `ds`**
 
-```bash
-gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>
-```
-
-**2. Run the live smoke workflow**
-
-The [`DeepSeek Live Smoke`](.github/workflows/deepseek-smoke.yml) workflow is
-`workflow_dispatch` (manual) so it never spends your DeepSeek quota on routine
-pushes. Trigger it from the **Actions** tab → **DeepSeek Live Smoke** → **Run
-workflow**, or:
+From the repo: **Code ▸ Codespaces ▸ Create codespace on main**. Then in the
+Codespace terminal:
 
 ```bash
-gh workflow run "DeepSeek Live Smoke" --repo <owner>/<repo>
+uv sync                                   # install the proxy + deps
+npm install -g @anthropic-ai/claude-code  # install the Claude Code CLI
+uv run ds                                 # start the DeepSeek proxy + Claude Code
 ```
 
-It exports the secret as `DEEPSEEK_API_KEY` and runs the DeepSeek provider smoke
-scenarios (`FCC_LIVE_SMOKE=1`, `FCC_SMOKE_TARGETS=providers`,
-`FCC_SMOKE_PROVIDER_MATRIX=deepseek`). See [`smoke/README.md`](smoke/README.md)
-for the full live-smoke harness.
+`ds` picks up `DEEPSEEK_API_KEY` from the Codespaces environment automatically.
 
 ## Contributing
 
