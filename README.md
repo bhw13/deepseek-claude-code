@@ -70,7 +70,7 @@ uv run ds
 
 ## How `ds` maps models
 
-`deepseek-v4-max` doesn't exist, so Opus and Sonnet both use `deepseek-v4-pro` and are differentiated by reasoning effort (forwarded to DeepSeek as `output_config.effort`):
+Opus and Sonnet both map to `deepseek-v4-pro`and are differentiated by reasoning effort, while Haiku maps to 'deepseek-v4-flash' (forwarded to DeepSeek as `output_config.effort`):
 
 | Claude Code tier | DeepSeek model      | Effort |
 | ---------------- | ------------------- | ------ |
