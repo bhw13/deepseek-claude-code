@@ -384,12 +384,13 @@ wheels = [
 
 [[package]]
 name = "deepseek-claude-code"
-version = "1.5.0"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "discord-py" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "filelock" },
     { name = "httpx", extra = ["socks"] },
     { name = "jsonschema" },
     { name = "loguru" },
@@ -432,6 +433,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.4" },
     { name = "discord-py", specifier = ">=2.7.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.136.3" },
+    { name = "filelock", specifier = ">=3.24.2" },
     { name = "grpcio", marker = "extra == 'voice'", specifier = ">=1.80.0" },
     { name = "grpcio-tools", marker = "extra == 'voice'", specifier = ">=1.80.0" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },

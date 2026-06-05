@@ -154,11 +154,11 @@ def _spawn_background_server(env: Mapping[str, str]) -> subprocess.Popen[bytes]:
 def _ensure_proxy(settings: Settings) -> subprocess.Popen[bytes] | None:
     """Reuse a reachable proxy, else spawn one. Return the owned process or None.
 
-    Symmetric "first starter wins": whichever of ``ds`` / ``fcc-claude`` runs
-    first starts and owns the proxy; the other reuses it. ``None`` means the
-    proxy was reused (and so must not be torn down by the caller). On a startup
-    race where a peer wins the port, the losing spawn is cleaned up and the
-    peer's proxy is adopted instead of failing.
+    "First starter wins": the first ``ds`` (or ``fcc-server``) to run starts and
+    owns the proxy; later ones reuse it. ``None`` means the proxy was reused (and
+    so must not be torn down by the caller). On a startup race where a peer wins
+    the port, the losing spawn is cleaned up and the peer's proxy is adopted
+    instead of failing.
     """
     proxy_root_url = local_proxy_root_url(settings)
     if _preflight_proxy(proxy_root_url) is None:
@@ -201,9 +201,10 @@ def serve_deepseek_and_launch_claude() -> None:
     print(_DEEPSEEK_CLAUDE_CODE_SUMMARY)
 
     settings = get_settings()
+    _ensure_context_hooks()
     server_process = _ensure_proxy(settings)
     try:
-        launch_claude()
+        _exec_claude(settings, None, env=_claude_child_env(settings, os.environ))
     finally:
         if server_process is not None:
             kill_pid_tree_best_effort(server_process.pid)
@@ -294,6 +295,42 @@ def init() -> None:
     print("Edit it to set your API keys and model preferences, then run: fcc-server")
 
 
+def _ensure_context_hooks() -> None:
+    """Register the shared-context hooks in Claude Code settings (idempotent)."""
+    from cli.hooks_install import claude_settings_path, ensure_context_hooks_installed
+
+    try:
+        if ensure_context_hooks_installed():
+            print(
+                "Registered Free Claude Code shared-context hooks in "
+                f"{claude_settings_path()}"
+            )
+    except OSError as exc:
+        print(f"Could not register shared-context hooks: {exc}", file=sys.stderr)
+
+
+def install_context_hooks() -> None:
+    """`fcc-install-hooks`: register the shared-context hooks (idempotent)."""
+    from cli.hooks_install import claude_settings_path, ensure_context_hooks_installed
+
+    path = claude_settings_path()
+    if ensure_context_hooks_installed():
+        print(f"Shared-context hooks registered in {path}")
+    else:
+        print(f"Shared-context hooks already present in {path}")
+
+
+def uninstall_context_hooks() -> None:
+    """`fcc-uninstall-hooks`: remove the shared-context hooks."""
+    from cli.hooks_install import claude_settings_path, remove_context_hooks
+
+    path = claude_settings_path()
+    if remove_context_hooks():
+        print(f"Shared-context hooks removed from {path}")
+    else:
+        print(f"No shared-context hooks found in {path}")
+
+
 def _migrate_legacy_env_if_missing() -> Path | None:
     """Copy a legacy user env into the managed config path when absent."""
 
@@ -366,26 +403,13 @@ def _preflight_proxy(proxy_root_url: str) -> str | None:
     return None
 
 
-def launch_claude(argv: Sequence[str] | None = None) -> None:
-    """Launch Claude Code against the proxy, starting one if none is running.
-
-    Symmetric with ``ds``: if a proxy is already reachable it is reused,
-    otherwise one is started here and owned for the lifetime of this Claude Code
-    session (torn down when it exits).
-    """
-
-    settings = get_settings()
-    owned_proxy = _ensure_proxy(settings)
-    try:
-        _exec_claude(settings, argv)
-    finally:
-        if owned_proxy is not None:
-            kill_pid_tree_best_effort(owned_proxy.pid)
-            unregister_pid(owned_proxy.pid)
-
-
-def _exec_claude(settings: Settings, argv: Sequence[str] | None) -> None:
-    """Run Claude Code in the foreground (proxy reachability already ensured)."""
+def _exec_claude(
+    settings: Settings,
+    argv: Sequence[str] | None,
+    *,
+    env: Mapping[str, str],
+) -> None:
+    """Run Claude Code in the foreground with the prepared child environment."""
 
     args = list(sys.argv[1:] if argv is None else argv)
     claude_command = shutil.which(settings.claude_cli_bin)
@@ -401,10 +425,10 @@ def _exec_claude(settings: Settings, argv: Sequence[str] | None) -> None:
         raise SystemExit(127)
 
     command = [claude_command, *args]
-    env = _claude_child_env(settings, os.environ)
+    child_env = dict(env)
     process: subprocess.Popen[bytes] | None = None
     try:
-        process = subprocess.Popen(command, env=env)
+        process = subprocess.Popen(command, env=child_env)
         if process.pid:
             register_pid(process.pid)
         return_code = process.wait()

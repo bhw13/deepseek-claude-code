@@ -1,5 +1,11 @@
-"""In-memory cross-session context sharing primitives (process-lifetime only)."""
+"""Cross-session context sharing primitives (file-backed, ephemeral)."""
 
-from .store import ContextEntry, SharedContextStore
+from .render import render_peer_context, session_label
+from .store import ContextEntry, FileContextStore
 
-__all__ = ["ContextEntry", "SharedContextStore"]
+__all__ = [
+    "ContextEntry",
+    "FileContextStore",
+    "render_peer_context",
+    "session_label",
+]

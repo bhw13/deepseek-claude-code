@@ -23,6 +23,15 @@ def _launcher_settings(
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_context_hook_install():
+    """Keep launcher tests from touching the real ~/.claude/settings.json."""
+    from cli import entrypoints
+
+    with patch.object(entrypoints, "_ensure_context_hooks") as ensure:
+        yield ensure
+
+
 def _run_init(tmp_home: Path) -> tuple[str, Path]:
     """Run init() with home directory redirected to tmp_home. Returns (printed output, env_file path)."""
     from cli.entrypoints import init
@@ -159,8 +168,11 @@ def test_cli_scripts_are_registered() -> None:
     assert scripts["free-claude-code"] == "cli.entrypoints:serve"
     assert scripts["fcc-deepseek"] == "cli.entrypoints:serve_deepseek"
     assert scripts["ds"] == "cli.entrypoints:serve_deepseek_and_launch_claude"
-    assert scripts["fcc-claude"] == "cli.entrypoints:launch_claude"
-    assert scripts["cc"] == "cli.entrypoints:launch_claude"
+    assert scripts["fcc-context-hook"] == "cli.context_hook:main"
+    assert scripts["fcc-install-hooks"] == "cli.entrypoints:install_context_hooks"
+    assert scripts["fcc-uninstall-hooks"] == "cli.entrypoints:uninstall_context_hooks"
+    assert "cc" not in scripts
+    assert "fcc-claude" not in scripts
 
 
 def test_serve_deepseek_overrides_model_and_runs_server(
@@ -176,6 +188,42 @@ def test_serve_deepseek_overrides_model_and_runs_server(
     serve_mock.assert_called_once()
 
 
+def test_install_context_hooks_entrypoint_reports_registration(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from cli import entrypoints
+
+    with (
+        patch("cli.hooks_install.ensure_context_hooks_installed", return_value=True),
+        patch(
+            "cli.hooks_install.claude_settings_path",
+            return_value=Path("/home/u/.claude/settings.json"),
+        ),
+    ):
+        entrypoints.install_context_hooks()
+
+    out = capsys.readouterr().out
+    assert "registered" in out.lower()
+    assert "/home/u/.claude/settings.json" in out
+
+
+def test_uninstall_context_hooks_entrypoint_reports_removal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from cli import entrypoints
+
+    with (
+        patch("cli.hooks_install.remove_context_hooks", return_value=True),
+        patch(
+            "cli.hooks_install.claude_settings_path",
+            return_value=Path("/home/u/.claude/settings.json"),
+        ),
+    ):
+        entrypoints.uninstall_context_hooks()
+
+    assert "removed" in capsys.readouterr().out.lower()
+
+
 _DEEPSEEK_TIER_ENV_KEYS = (
     "MODEL",
     "MODEL_OPUS",
@@ -187,7 +235,9 @@ _DEEPSEEK_TIER_ENV_KEYS = (
 )
 
 
-def test_serve_deepseek_and_launch_claude_starts_proxy_then_client() -> None:
+def test_serve_deepseek_and_launch_claude_starts_proxy_then_client(
+    _stub_context_hook_install,
+) -> None:
     """`ds` spawns the proxy when none is running, waits, launches Claude, cleans up."""
     from cli import entrypoints
 
@@ -204,7 +254,7 @@ def test_serve_deepseek_and_launch_claude_starts_proxy_then_client() -> None:
             entrypoints, "_spawn_background_server", return_value=server_process
         ) as spawn,
         patch.object(entrypoints, "_await_proxy_ready", return_value=True) as ready,
-        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "_exec_claude") as exec_claude,
         patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
         patch.object(entrypoints, "unregister_pid") as unregister,
     ):
@@ -217,9 +267,16 @@ def test_serve_deepseek_and_launch_claude_starts_proxy_then_client() -> None:
         assert os.environ["MODEL_HAIKU_EFFORT"] == "high"
     spawn.assert_called_once()
     ready.assert_called_once()
-    launch.assert_called_once_with()
+    exec_claude.assert_called_once()
+    # `ds` runs Claude Code against the local proxy (not Anthropic passthrough).
+    assert (
+        exec_claude.call_args.kwargs["env"]["ANTHROPIC_BASE_URL"]
+        == "http://127.0.0.1:8082"
+    )
     kill_tree.assert_called_once_with(4242)
     unregister.assert_called_once_with(4242)
+    # `ds` also registers the shared-context hooks for its Claude Code session.
+    _stub_context_hook_install.assert_called_once()
 
 
 def test_serve_deepseek_and_launch_claude_reuses_running_proxy() -> None:
@@ -231,13 +288,13 @@ def test_serve_deepseek_and_launch_claude_reuses_running_proxy() -> None:
         patch.object(entrypoints, "get_settings", return_value=_launcher_settings()),
         patch.object(entrypoints, "_preflight_proxy", return_value=None),
         patch.object(entrypoints, "_spawn_background_server") as spawn,
-        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "_exec_claude") as exec_claude,
         patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
     ):
         entrypoints.serve_deepseek_and_launch_claude()
 
     spawn.assert_not_called()
-    launch.assert_called_once_with()
+    exec_claude.assert_called_once()
     kill_tree.assert_not_called()
 
 
@@ -258,7 +315,7 @@ def test_serve_deepseek_and_launch_claude_exits_when_proxy_unready() -> None:
             entrypoints, "_spawn_background_server", return_value=server_process
         ),
         patch.object(entrypoints, "_await_proxy_ready", return_value=False),
-        patch.object(entrypoints, "launch_claude") as launch,
+        patch.object(entrypoints, "_exec_claude") as exec_claude,
         patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
         patch.object(entrypoints, "unregister_pid"),
         pytest.raises(SystemExit) as exc_info,
@@ -266,7 +323,7 @@ def test_serve_deepseek_and_launch_claude_exits_when_proxy_unready() -> None:
         entrypoints.serve_deepseek_and_launch_claude()
 
     assert exc_info.value.code == 1
-    launch.assert_not_called()
+    exec_claude.assert_not_called()
     kill_tree.assert_called_once_with(5151)
 
 
@@ -456,19 +513,13 @@ def test_claude_child_env_removes_blank_configured_auth_token() -> None:
     assert "ANTHROPIC_API_KEY" not in env
 
 
-def test_launch_claude_passes_args_and_child_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from cli.entrypoints import launch_claude
+def test_exec_claude_passes_args_and_env_to_subprocess() -> None:
+    """`ds` runs Claude Code via `_exec_claude` with the prepared proxy env."""
+    from cli.entrypoints import _exec_claude
 
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "old-token")
-    monkeypatch.setenv("KEEP_ME", "yes")
-    settings = _launcher_settings(port=9191, token="proxy-token")
-
+    settings = _launcher_settings()
+    env = {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8082", "KEEP_ME": "yes"}
     with (
-        patch("cli.entrypoints.get_settings", return_value=settings),
-        patch("cli.entrypoints._preflight_proxy", return_value=None),
         patch("cli.entrypoints.shutil.which", return_value="resolved-claude.cmd"),
         patch("cli.entrypoints.subprocess.Popen") as popen,
         patch("cli.entrypoints.register_pid") as register_pid,
@@ -478,29 +529,23 @@ def test_launch_claude_passes_args_and_child_env(
         process = popen.return_value
         process.pid = 12345
         process.wait.return_value = 7
-        launch_claude(["--model", "sonnet"])
+        _exec_claude(settings, ["--model", "sonnet"], env=env)
 
     assert exc_info.value.code == 7
     popen.assert_called_once()
     assert popen.call_args.args[0] == ["resolved-claude.cmd", "--model", "sonnet"]
     child_env = popen.call_args.kwargs["env"]
-    assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9191"
-    assert child_env["ANTHROPIC_AUTH_TOKEN"] == "proxy-token"
-    assert child_env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] == "1"
-    assert child_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "190000"
+    assert child_env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8082"
     assert child_env["KEEP_ME"] == "yes"
     register_pid.assert_called_once_with(12345)
     unregister_pid.assert_called_once_with(12345)
 
 
-def test_launch_claude_keyboard_interrupt_kills_child_tree() -> None:
-    from cli.entrypoints import launch_claude
+def test_exec_claude_keyboard_interrupt_kills_child_tree() -> None:
+    from cli.entrypoints import _exec_claude
 
-    settings = _launcher_settings(port=9191, token="proxy-token")
-
+    settings = _launcher_settings()
     with (
-        patch("cli.entrypoints.get_settings", return_value=settings),
-        patch("cli.entrypoints._preflight_proxy", return_value=None),
         patch("cli.entrypoints.shutil.which", return_value="resolved-claude.cmd"),
         patch("cli.entrypoints.subprocess.Popen") as popen,
         patch("cli.entrypoints.register_pid"),
@@ -512,66 +557,30 @@ def test_launch_claude_keyboard_interrupt_kills_child_tree() -> None:
         process.pid = 12345
         process.wait.side_effect = [KeyboardInterrupt, 0]
 
-        launch_claude([])
+        _exec_claude(settings, [], env={})
 
     kill_tree.assert_called_once_with(12345)
     unregister_pid.assert_called_once_with(12345)
 
 
-def test_launch_claude_exits_when_command_cannot_be_resolved(
+def test_exec_claude_exits_when_command_cannot_be_resolved(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from cli.entrypoints import launch_claude
+    from cli.entrypoints import _exec_claude
 
     settings = _launcher_settings()
     with (
-        patch("cli.entrypoints.get_settings", return_value=settings),
-        patch("cli.entrypoints._preflight_proxy", return_value=None),
         patch("cli.entrypoints.shutil.which", return_value=None),
         patch("cli.entrypoints.subprocess.Popen") as popen,
         pytest.raises(SystemExit) as exc_info,
     ):
-        launch_claude([])
+        _exec_claude(settings, [], env={})
 
     assert exc_info.value.code == 127
     popen.assert_not_called()
     captured = capsys.readouterr()
     assert "Could not find Claude Code command: claude" in captured.err
     assert "npm install -g @anthropic-ai/claude-code" in captured.err
-
-
-def test_launch_claude_spawns_and_owns_proxy_when_unreachable() -> None:
-    """`fcc-claude` starts and owns a proxy when none is running, then tears it down."""
-    from cli.entrypoints import launch_claude
-
-    server_process = MagicMock()
-    server_process.pid = 6262
-    settings = _launcher_settings(port=9393)
-    with (
-        patch("cli.entrypoints.get_settings", return_value=settings),
-        patch("cli.entrypoints._preflight_proxy", return_value="connection refused"),
-        patch(
-            "cli.entrypoints._spawn_background_server", return_value=server_process
-        ) as spawn,
-        patch("cli.entrypoints._await_proxy_ready", return_value=True),
-        patch("cli.entrypoints.shutil.which", return_value="resolved-claude.cmd"),
-        patch("cli.entrypoints.subprocess.Popen") as popen,
-        patch("cli.entrypoints.register_pid"),
-        patch("cli.entrypoints.unregister_pid") as unregister_pid,
-        patch("cli.entrypoints.kill_pid_tree_best_effort") as kill_tree,
-        pytest.raises(SystemExit) as exc_info,
-    ):
-        process = popen.return_value
-        process.pid = 12345
-        process.wait.return_value = 0
-        launch_claude([])
-
-    assert exc_info.value.code == 0
-    spawn.assert_called_once()
-    popen.assert_called_once()
-    # The owned proxy (not the Claude child) is torn down after Claude exits.
-    kill_tree.assert_called_once_with(6262)
-    unregister_pid.assert_any_call(6262)
 
 
 def test_ensure_proxy_reuses_reachable_proxy() -> None:

@@ -9,6 +9,8 @@ LEGACY_XDG_CONFIG_DIRNAME = ".config"
 CLAUDE_WORKSPACE_DIRNAME = "agent_workspace"
 FCC_LOGS_DIRNAME = "logs"
 SERVER_LOG_FILENAME = "server.log"
+FCC_RUN_DIRNAME = "run"
+SHARED_CONTEXT_FILENAME = "shared-context.json"
 
 
 def config_dir_path() -> Path:
@@ -43,3 +45,9 @@ def server_log_path() -> Path:
     """Return the canonical server log path."""
 
     return config_dir_path() / FCC_LOGS_DIRNAME / SERVER_LOG_FILENAME
+
+
+def shared_context_file_path() -> Path:
+    """Return the ephemeral cross-session context file shared by hook processes."""
+
+    return config_dir_path() / FCC_RUN_DIRNAME / SHARED_CONTEXT_FILENAME

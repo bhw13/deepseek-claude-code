@@ -251,9 +251,10 @@ class Settings(BaseSettings):
 
     # ==================== Shared cross-session context ====================
     # Automatically share a one-line "what each terminal is working on" note
-    # between concurrent Claude Code sessions on the same proxy. In-memory only
-    # (never persisted), so it dies with the proxy and cannot bloat across runs.
-    # Invisible with a single terminal: nothing is injected without a peer.
+    # between concurrent local Claude Code sessions (cc and ds) via the
+    # UserPromptSubmit hook and an ephemeral ~/.fcc/run file that is deleted when
+    # the last session ends, so it cannot bloat across runs. Invisible with a
+    # single terminal: nothing is injected without a peer.
     shared_context_enabled: bool = Field(
         default=True, validation_alias="SHARED_CONTEXT_ENABLED"
     )

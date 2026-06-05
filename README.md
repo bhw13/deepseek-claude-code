@@ -24,7 +24,7 @@ Run Claude Code in your terminal on **DeepSeek** — one command (`ds`) that rou
 
 Claude Code talks to the Anthropic Messages API. This runs a small local proxy that intercepts those calls and forwards them to DeepSeek's Anthropic-compatible endpoint — translating Claude Code's model names to DeepSeek models and streaming the responses back in the shape Claude Code expects. You keep the Claude Code experience; inference runs on DeepSeek.
 
-The `ds` command bundles it into one step: it starts the proxy (routed to DeepSeek) and launches Claude Code, then shuts the proxy down when you exit. Open several sessions at once and the first to start brings up the proxy, the rest reuse it, and they automatically share what each terminal is working on — see [Shared context across terminals](#shared-context-across-terminals).
+The `ds` command bundles it into one step: it starts the proxy (routed to DeepSeek) and launches Claude Code, then shuts the proxy down when you exit. Open several sessions at once — `ds` for DeepSeek, plain `claude` for real Claude — and they automatically share what each terminal is working on — see [Shared context across terminals](#shared-context-across-terminals).
 
 ## Quick Start
 
@@ -68,14 +68,13 @@ uv run ds
 
 `ds` starts the DeepSeek-routed proxy and launches Claude Code together, then stops the proxy when you exit.
 
-For a global install (no `uv run` prefix), run `uv tool install .` once. That puts two commands on your `PATH`:
+For a global install (no `uv run` prefix), run `uv tool install .` once. That puts `ds` on your `PATH`:
 
 | Command | What it does |
 | ------- | ------------ |
 | `ds`    | Start the DeepSeek-routed proxy **and** launch Claude Code; stop the proxy on exit. |
-| `cc`    | Launch Claude Code against the proxy — auto-starting one if none is running, or reusing the one `ds` already started. |
 
-Use `ds` for your first terminal, then `cc` in any additional terminals to attach more Claude Code sessions to the same proxy — they automatically [share context](#shared-context-across-terminals).
+Use `ds` to run Claude Code on DeepSeek through the proxy; run `claude` directly when you want real Claude on your own account instead. Either way, run several at once — any mix of `ds` and plain `claude` sessions — and they automatically [share context](#shared-context-across-terminals).
 
 ## How `ds` maps models
 
@@ -91,14 +90,14 @@ Tune effort per tier with `MODEL_EFFORT` / `MODEL_OPUS_EFFORT` / `MODEL_SONNET_E
 
 ## Shared context across terminals
 
-Run more than one session at once — two `ds` terminals, or `ds` in one and `cc` in another — and they automatically share what each is working on. Whoever starts first launches the proxy; the others connect to the same one, and a one-line note of each session's current prompt is shared with the rest so the models stay consistent across terminals.
+Run more than one session at once — any mix of `ds` and plain `claude` terminals — and they automatically share what each is working on. A `UserPromptSubmit` hook (registered in `~/.claude/settings.json` the first time you run `ds`, or via `fcc-install-hooks`) records each session's latest prompt to a small file under `~/.fcc/run/` and surfaces the others' prompts back so the models stay consistent across terminals — independent of where inference runs, so DeepSeek (`ds`) and real-Claude (plain `claude`) sessions all share the same context.
 
 - **Automatic.** Each fresh prompt is published to the other live sessions and surfaced to them as read-only background context — no commands, no copy-paste.
-- **Ephemeral by design.** Notes live in the proxy's memory only. Nothing is written to disk, so context never persists across runs and can't accumulate or bloat — it all disappears when the proxy stops.
+- **Ephemeral by design.** The note file lives under `~/.fcc/run/` and is deleted when the last session ends, so context never persists across runs and can't accumulate or bloat.
 - **Bounded, so it won't degrade output.** One overwritten note per session, idle notes expire, and only a small, recent set is injected — keeping shared context fresh instead of growing into noise that distracts the model.
 - **Invisible solo.** With a single terminal there are no peers, so nothing is added to your prompts and behavior is unchanged.
 
-Tune or disable it with the `SHARED_CONTEXT_*` settings (see [`.env.example`](.env.example)); set `SHARED_CONTEXT_ENABLED=false` to turn it off entirely.
+Tune or disable it with the `SHARED_CONTEXT_*` settings (see [`.env.example`](.env.example)); set `SHARED_CONTEXT_ENABLED=false` to turn it off entirely. Remove the hook with `fcc-uninstall-hooks` (re-add with `fcc-install-hooks`).
 
 ## Run in a GitHub Codespace
 
@@ -137,7 +136,7 @@ Diagram source: [`assets/how-it-works.mmd`](assets/how-it-works.mmd).
 - Model routing resolves the incoming Claude model name (Opus/Sonnet/Haiku) to the configured DeepSeek model and effort.
 - DeepSeek is reached through its Anthropic-compatible Messages endpoint; the proxy normalizes thinking blocks, tool calls, token-usage metadata, and provider errors into the shape Claude Code expects.
 - Trivial Claude Code probes are answered locally to save latency and quota.
-- Concurrent sessions on the same proxy share a short, in-memory note of what each is working on, injected as read-only background context (see [Shared context across terminals](#shared-context-across-terminals)).
+- Concurrent local sessions share a short note of what each is working on via a Claude Code `UserPromptSubmit` hook and an ephemeral `~/.fcc/run/` file, injected as read-only background context (see [Shared context across terminals](#shared-context-across-terminals)).
 
 ## Development
 
@@ -169,9 +168,10 @@ Run them in that order before pushing.
 
 - `ds`: starts the DeepSeek-routed proxy (per-tier effort mapping) and launches Claude Code, then stops the proxy on exit. If a proxy is already running it is reused.
 - `fcc-server`: starts the proxy on its own.
-- `fcc-claude` (alias `cc`): launches Claude Code, starting a proxy if none is running (and reusing one if it is); a proxy it starts is stopped when Claude Code exits.
 - `fcc-deepseek`: starts the proxy with `MODEL=deepseek/deepseek-chat`.
 - `fcc-init`: optional scaffold for `~/.fcc/.env`; prefer the Admin UI for normal configuration.
+- `fcc-context-hook`: the `UserPromptSubmit`/`SessionEnd` hook backing [shared context](#shared-context-across-terminals); invoked by Claude Code, not run directly.
+- `fcc-install-hooks` / `fcc-uninstall-hooks`: register or remove the shared-context hook in `~/.claude/settings.json` (`ds` auto-registers it on launch; run `fcc-install-hooks` once if you only ever use plain `claude`).
 
 ## Credit & License
 
