@@ -160,7 +160,7 @@ Run them in that order before pushing.
 
 - `ds`: starts the DeepSeek-routed proxy (per-tier effort mapping) and launches Claude Code, then stops the proxy on exit. If a proxy is already running it is reused.
 - `fcc-server`: starts the proxy on its own.
-- `fcc-claude`: launches Claude Code, starting a proxy if none is running (and reusing one if it is); a proxy it starts is stopped when Claude Code exits.
+- `fcc-claude` (alias `cc`): launches Claude Code, starting a proxy if none is running (and reusing one if it is); a proxy it starts is stopped when Claude Code exits.
 - `fcc-deepseek`: starts the proxy with `MODEL=deepseek/deepseek-chat`.
 - `fcc-init`: optional scaffold for `~/.fcc/.env`; prefer the Admin UI for normal configuration.
 

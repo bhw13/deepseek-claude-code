@@ -160,6 +160,7 @@ def test_cli_scripts_are_registered() -> None:
     assert scripts["fcc-deepseek"] == "cli.entrypoints:serve_deepseek"
     assert scripts["ds"] == "cli.entrypoints:serve_deepseek_and_launch_claude"
     assert scripts["fcc-claude"] == "cli.entrypoints:launch_claude"
+    assert scripts["cc"] == "cli.entrypoints:launch_claude"
 
 
 def test_serve_deepseek_overrides_model_and_runs_server(
