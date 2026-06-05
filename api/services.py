@@ -22,6 +22,7 @@ from .model_router import ModelRouter
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import TokenCountResponse
 from .optimization_handlers import try_optimizations
+from .shared_context import SharedContextManager
 from .web_tools.egress import WebFetchEgressPolicy
 from .web_tools.request import (
     is_web_server_tool_request,
@@ -93,11 +94,13 @@ class ClaudeProxyService:
         provider_getter: ProviderGetter,
         model_router: ModelRouter | None = None,
         token_counter: TokenCounter = get_token_count,
+        shared_context: SharedContextManager | None = None,
     ):
         self._settings = settings
         self._provider_getter = provider_getter
         self._model_router = model_router or ModelRouter(settings)
         self._token_counter = token_counter
+        self._shared_context = shared_context
 
     def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
@@ -148,6 +151,11 @@ class ClaudeProxyService:
                 )
                 return optimized
             logger.debug("No optimization matched, routing to provider")
+
+            # Share context across concurrent sessions only for real provider-bound
+            # turns (after optimizations short-circuit Claude Code's housekeeping).
+            if self._shared_context is not None:
+                self._shared_context.process(routed.request)
 
             provider = self._provider_getter(routed.resolved.provider_id)
             provider.preflight_stream(

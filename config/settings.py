@@ -249,6 +249,32 @@ class Settings(BaseSettings):
         default=False, validation_alias="WEB_FETCH_ALLOW_PRIVATE_NETWORKS"
     )
 
+    # ==================== Shared cross-session context ====================
+    # Automatically share a one-line "what each terminal is working on" note
+    # between concurrent Claude Code sessions on the same proxy. In-memory only
+    # (never persisted), so it dies with the proxy and cannot bloat across runs.
+    # Invisible with a single terminal: nothing is injected without a peer.
+    shared_context_enabled: bool = Field(
+        default=True, validation_alias="SHARED_CONTEXT_ENABLED"
+    )
+    # Idle note lifetime; a session's note expires this many seconds after its
+    # last fresh prompt so closed/stale terminals stop polluting peers.
+    shared_context_ttl_seconds: float = Field(
+        default=900.0, validation_alias="SHARED_CONTEXT_TTL_SECONDS"
+    )
+    # Max distinct sessions retained (least-recently-updated evicted past this).
+    shared_context_max_sessions: int = Field(
+        default=16, validation_alias="SHARED_CONTEXT_MAX_SESSIONS"
+    )
+    # Max characters kept per session note (longer prompts are truncated).
+    shared_context_max_note_chars: int = Field(
+        default=600, validation_alias="SHARED_CONTEXT_MAX_NOTE_CHARS"
+    )
+    # Max peer notes injected into any one request (caps added prompt size).
+    shared_context_max_inject_notes: int = Field(
+        default=5, validation_alias="SHARED_CONTEXT_MAX_INJECT_NOTES"
+    )
+
     # ==================== Debug / diagnostic logging (avoid sensitive content) ====================
     # When false (default), API and SSE helpers log only metadata (counts, lengths, ids).
     log_raw_api_payloads: bool = Field(
@@ -366,6 +392,18 @@ class Settings(BaseSettings):
     def parse_optional_log_cap(cls, v: Any) -> Any:
         if v == "" or v is None:
             return None
+        return v
+
+    @field_validator(
+        "shared_context_ttl_seconds",
+        "shared_context_max_sessions",
+        "shared_context_max_note_chars",
+        "shared_context_max_inject_notes",
+    )
+    @classmethod
+    def validate_shared_context_bounds(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("shared_context_* bounds must be > 0")
         return v
 
     @property

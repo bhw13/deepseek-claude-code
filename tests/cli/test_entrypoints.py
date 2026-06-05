@@ -539,22 +539,97 @@ def test_launch_claude_exits_when_command_cannot_be_resolved(
     assert "npm install -g @anthropic-ai/claude-code" in captured.err
 
 
-def test_launch_claude_unreachable_proxy_exits_with_hint(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_launch_claude_spawns_and_owns_proxy_when_unreachable() -> None:
+    """`fcc-claude` starts and owns a proxy when none is running, then tears it down."""
     from cli.entrypoints import launch_claude
 
+    server_process = MagicMock()
+    server_process.pid = 6262
     settings = _launcher_settings(port=9393)
     with (
         patch("cli.entrypoints.get_settings", return_value=settings),
         patch("cli.entrypoints._preflight_proxy", return_value="connection refused"),
-        patch("cli.entrypoints.subprocess.run") as run,
+        patch(
+            "cli.entrypoints._spawn_background_server", return_value=server_process
+        ) as spawn,
+        patch("cli.entrypoints._await_proxy_ready", return_value=True),
+        patch("cli.entrypoints.shutil.which", return_value="resolved-claude.cmd"),
+        patch("cli.entrypoints.subprocess.Popen") as popen,
+        patch("cli.entrypoints.register_pid"),
+        patch("cli.entrypoints.unregister_pid") as unregister_pid,
+        patch("cli.entrypoints.kill_pid_tree_best_effort") as kill_tree,
         pytest.raises(SystemExit) as exc_info,
     ):
+        process = popen.return_value
+        process.pid = 12345
+        process.wait.return_value = 0
         launch_claude([])
 
+    assert exc_info.value.code == 0
+    spawn.assert_called_once()
+    popen.assert_called_once()
+    # The owned proxy (not the Claude child) is torn down after Claude exits.
+    kill_tree.assert_called_once_with(6262)
+    unregister_pid.assert_any_call(6262)
+
+
+def test_ensure_proxy_reuses_reachable_proxy() -> None:
+    """A reachable proxy is reused without spawning, and is not owned."""
+    from cli import entrypoints
+
+    settings = _launcher_settings()
+    with (
+        patch.object(entrypoints, "_preflight_proxy", return_value=None),
+        patch.object(entrypoints, "_spawn_background_server") as spawn,
+    ):
+        assert entrypoints._ensure_proxy(settings) is None
+    spawn.assert_not_called()
+
+
+def test_ensure_proxy_adopts_peer_on_startup_race() -> None:
+    """A lost startup race cleans up our spawn and adopts the peer's proxy."""
+    from cli import entrypoints
+
+    server_process = MagicMock()
+    server_process.pid = 7373
+    settings = _launcher_settings()
+    # Initial preflight unreachable -> spawn; adopt-check preflight reachable.
+    preflight = iter(["connection refused", None])
+    with (
+        patch.object(
+            entrypoints, "_preflight_proxy", side_effect=lambda _url: next(preflight)
+        ),
+        patch.object(
+            entrypoints, "_spawn_background_server", return_value=server_process
+        ),
+        patch.object(entrypoints, "_await_proxy_ready", return_value=False),
+        patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
+        patch.object(entrypoints, "unregister_pid"),
+    ):
+        assert entrypoints._ensure_proxy(settings) is None
+    kill_tree.assert_called_once_with(7373)
+
+
+def test_ensure_proxy_exits_when_spawn_never_ready_and_no_peer() -> None:
+    """A failed spawn with no concurrent winner cleans up and exits 1."""
+    from cli import entrypoints
+
+    server_process = MagicMock()
+    server_process.pid = 8484
+    settings = _launcher_settings()
+    with (
+        patch.object(
+            entrypoints, "_preflight_proxy", return_value="connection refused"
+        ),
+        patch.object(
+            entrypoints, "_spawn_background_server", return_value=server_process
+        ),
+        patch.object(entrypoints, "_await_proxy_ready", return_value=False),
+        patch.object(entrypoints, "kill_pid_tree_best_effort") as kill_tree,
+        patch.object(entrypoints, "unregister_pid"),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        entrypoints._ensure_proxy(settings)
+
     assert exc_info.value.code == 1
-    run.assert_not_called()
-    captured = capsys.readouterr()
-    assert "http://127.0.0.1:9393" in captured.err
-    assert "fcc-server" in captured.err
+    kill_tree.assert_called_once_with(8484)

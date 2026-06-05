@@ -10,7 +10,7 @@ Run Claude Code in your terminal on **DeepSeek** — one command (`ds`) that rou
 [![Type checking: Ty](https://img.shields.io/badge/type%20checking-ty-ffcc00.svg?style=for-the-badge)](https://pypi.org/project/ty/)
 [![Code style: Ruff](https://img.shields.io/badge/code%20formatting-ruff-f5a623.svg?style=for-the-badge)](https://github.com/astral-sh/ruff)
 
-[Quick Start](#quick-start) · [How `ds` maps models](#how-ds-maps-models) · [Codespaces](#run-in-a-github-codespace) · [How it works](#how-it-works) · [Development](#development)
+[Quick Start](#quick-start) · [How `ds` maps models](#how-ds-maps-models) · [Shared context](#shared-context-across-terminals) · [Codespaces](#run-in-a-github-codespace) · [How it works](#how-it-works) · [Development](#development)
 
 </div>
 
@@ -24,7 +24,7 @@ Run Claude Code in your terminal on **DeepSeek** — one command (`ds`) that rou
 
 Claude Code talks to the Anthropic Messages API. This runs a small local proxy that intercepts those calls and forwards them to DeepSeek's Anthropic-compatible endpoint — translating Claude Code's model names to DeepSeek models and streaming the responses back in the shape Claude Code expects. You keep the Claude Code experience; inference runs on DeepSeek.
 
-The `ds` command bundles it into one step: it starts the proxy (routed to DeepSeek) and launches Claude Code, then shuts the proxy down when you exit.
+The `ds` command bundles it into one step: it starts the proxy (routed to DeepSeek) and launches Claude Code, then shuts the proxy down when you exit. Open several sessions at once and the first to start brings up the proxy, the rest reuse it, and they automatically share what each terminal is working on — see [Shared context across terminals](#shared-context-across-terminals).
 
 ## Quick Start
 
@@ -80,6 +80,17 @@ Opus and Sonnet both map to `deepseek-v4-pro`and are differentiated by reasoning
 
 Tune effort per tier with `MODEL_EFFORT` / `MODEL_OPUS_EFFORT` / `MODEL_SONNET_EFFORT` / `MODEL_HAIKU_EFFORT` (`low` | `medium` | `high` | `xhigh` | `max`); a blank tier inherits `MODEL_EFFORT`. The proxy writes its logs to `~/.fcc/logs/server.log`, so server output never corrupts the Claude Code TUI.
 
+## Shared context across terminals
+
+Run more than one session at once — two `ds` terminals, or `ds` in one and `fcc-claude` in another — and they automatically share what each is working on. Whoever starts first launches the proxy; the others connect to the same one, and a one-line note of each session's current prompt is shared with the rest so the models stay consistent across terminals.
+
+- **Automatic.** Each fresh prompt is published to the other live sessions and surfaced to them as read-only background context — no commands, no copy-paste.
+- **Ephemeral by design.** Notes live in the proxy's memory only. Nothing is written to disk, so context never persists across runs and can't accumulate or bloat — it all disappears when the proxy stops.
+- **Bounded, so it won't degrade output.** One overwritten note per session, idle notes expire, and only a small, recent set is injected — keeping shared context fresh instead of growing into noise that distracts the model.
+- **Invisible solo.** With a single terminal there are no peers, so nothing is added to your prompts and behavior is unchanged.
+
+Tune or disable it with the `SHARED_CONTEXT_*` settings (see [`.env.example`](.env.example)); set `SHARED_CONTEXT_ENABLED=false` to turn it off entirely.
+
 ## Run in a GitHub Codespace
 
 The proxy reads `DEEPSEEK_API_KEY` from the environment, and GitHub Codespaces injects **Codespaces secrets** as environment variables — so `ds` works in a Codespace with no `.env` file.
@@ -117,6 +128,7 @@ Diagram source: [`assets/how-it-works.mmd`](assets/how-it-works.mmd).
 - Model routing resolves the incoming Claude model name (Opus/Sonnet/Haiku) to the configured DeepSeek model and effort.
 - DeepSeek is reached through its Anthropic-compatible Messages endpoint; the proxy normalizes thinking blocks, tool calls, token-usage metadata, and provider errors into the shape Claude Code expects.
 - Trivial Claude Code probes are answered locally to save latency and quota.
+- Concurrent sessions on the same proxy share a short, in-memory note of what each is working on, injected as read-only background context (see [Shared context across terminals](#shared-context-across-terminals)).
 
 ## Development
 
@@ -146,9 +158,9 @@ Run them in that order before pushing.
 
 ### Package scripts
 
-- `ds`: starts the DeepSeek-routed proxy (per-tier effort mapping) and launches Claude Code, then stops the proxy on exit.
+- `ds`: starts the DeepSeek-routed proxy (per-tier effort mapping) and launches Claude Code, then stops the proxy on exit. If a proxy is already running it is reused.
 - `fcc-server`: starts the proxy on its own.
-- `fcc-claude`: launches Claude Code against an already-running proxy.
+- `fcc-claude`: launches Claude Code, starting a proxy if none is running (and reusing one if it is); a proxy it starts is stopped when Claude Code exits.
 - `fcc-deepseek`: starts the proxy with `MODEL=deepseek/deepseek-chat`.
 - `fcc-init`: optional scaffold for `~/.fcc/.env`; prefer the Admin UI for normal configuration.
 

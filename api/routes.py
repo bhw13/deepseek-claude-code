@@ -14,6 +14,7 @@ from .gateway_model_ids import gateway_model_id, no_thinking_gateway_model_id
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse
 from .services import ClaudeProxyService
+from .shared_context import build_shared_context_manager
 
 router = APIRouter()
 
@@ -70,6 +71,9 @@ def get_proxy_service(
             provider_type, app=request.app, settings=settings
         ),
         token_counter=get_token_count,
+        shared_context=build_shared_context_manager(
+            request.app, settings, request.headers
+        ),
     )
 
 

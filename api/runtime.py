@@ -105,6 +105,7 @@ class AppRuntime:
         admin_url = local_admin_url(self.settings)
         self._provider_registry = ProviderRegistry()
         self.app.state.provider_registry = self._provider_registry
+        self._init_shared_context_store()
         try:
             warn_if_process_auth_token(self.settings)
             await self._validate_configured_models_best_effort()
@@ -122,6 +123,15 @@ class AppRuntime:
                 log_verbose_errors=self.settings.log_api_error_tracebacks,
             )
             raise
+
+    def _init_shared_context_store(self) -> None:
+        """Create the process-lifetime cross-session context store (in-memory)."""
+        if not self.settings.shared_context_enabled:
+            self.app.state.shared_context_store = None
+            return
+        from api.shared_context import create_store
+
+        self.app.state.shared_context_store = create_store(self.settings)
 
     async def _validate_configured_models_best_effort(self) -> None:
         """Warm validation status without blocking first-run/admin access."""
@@ -153,6 +163,9 @@ class AppRuntime:
                     )
 
         logger.info("Shutdown requested, cleaning up...")
+        store = getattr(self.app.state, "shared_context_store", None)
+        if store is not None:
+            store.clear()
         if self.messaging_platform:
             await best_effort(
                 "messaging_platform.stop",

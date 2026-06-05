@@ -151,6 +151,44 @@ def _spawn_background_server(env: Mapping[str, str]) -> subprocess.Popen[bytes]:
     return process
 
 
+def _ensure_proxy(settings: Settings) -> subprocess.Popen[bytes] | None:
+    """Reuse a reachable proxy, else spawn one. Return the owned process or None.
+
+    Symmetric "first starter wins": whichever of ``ds`` / ``fcc-claude`` runs
+    first starts and owns the proxy; the other reuses it. ``None`` means the
+    proxy was reused (and so must not be torn down by the caller). On a startup
+    race where a peer wins the port, the losing spawn is cleaned up and the
+    peer's proxy is adopted instead of failing.
+    """
+    proxy_root_url = local_proxy_root_url(settings)
+    if _preflight_proxy(proxy_root_url) is None:
+        print(
+            f"Using the proxy already running at {proxy_root_url} "
+            "(its existing model routing applies)."
+        )
+        return None
+
+    server_env = os.environ.copy()
+    server_env.setdefault("FCC_OPEN_BROWSER", "0")
+    print(f"Starting Free Claude Code proxy (logs: {server_log_path()})")
+    server_process = _spawn_background_server(server_env)
+    if _await_proxy_ready(proxy_root_url):
+        return server_process
+
+    # Our spawn never became ready: drop it, then adopt a proxy a concurrent
+    # starter may have bound in the meantime; otherwise give up.
+    kill_pid_tree_best_effort(server_process.pid)
+    unregister_pid(server_process.pid)
+    if _preflight_proxy(proxy_root_url) is None:
+        print(f"Adopted a proxy started concurrently at {proxy_root_url}.")
+        return None
+    print(
+        f"Proxy did not become ready at {proxy_root_url}; check {server_log_path()}.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
 def serve_deepseek_and_launch_claude() -> None:
     """`ds`: start the DeepSeek-routed proxy (if needed) and launch Claude Code.
 
@@ -163,29 +201,7 @@ def serve_deepseek_and_launch_claude() -> None:
     print(_DEEPSEEK_CLAUDE_CODE_SUMMARY)
 
     settings = get_settings()
-    proxy_root_url = local_proxy_root_url(settings)
-
-    server_process: subprocess.Popen[bytes] | None = None
-    if _preflight_proxy(proxy_root_url) is None:
-        print(
-            f"Using the proxy already running at {proxy_root_url} "
-            "(its own routing applies; restart it with `ds` for DeepSeek routing)."
-        )
-    else:
-        server_env = os.environ.copy()
-        server_env.setdefault("FCC_OPEN_BROWSER", "0")
-        print(f"Starting Free Claude Code proxy (logs: {server_log_path()})")
-        server_process = _spawn_background_server(server_env)
-        if not _await_proxy_ready(proxy_root_url):
-            print(
-                f"Proxy did not become ready at {proxy_root_url}; "
-                f"check {server_log_path()}.",
-                file=sys.stderr,
-            )
-            kill_pid_tree_best_effort(server_process.pid)
-            unregister_pid(server_process.pid)
-            raise SystemExit(1)
-
+    server_process = _ensure_proxy(settings)
     try:
         launch_claude()
     finally:
@@ -351,17 +367,25 @@ def _preflight_proxy(proxy_root_url: str) -> str | None:
 
 
 def launch_claude(argv: Sequence[str] | None = None) -> None:
-    """Launch Claude Code with Free Claude Code proxy environment variables."""
+    """Launch Claude Code against the proxy, starting one if none is running.
+
+    Symmetric with ``ds``: if a proxy is already reachable it is reused,
+    otherwise one is started here and owned for the lifetime of this Claude Code
+    session (torn down when it exits).
+    """
 
     settings = get_settings()
-    proxy_root_url = local_proxy_root_url(settings)
-    if error := _preflight_proxy(proxy_root_url):
-        print(
-            f"Free Claude Code proxy is not reachable at {proxy_root_url}: {error}",
-            file=sys.stderr,
-        )
-        print("Start it in another terminal with: fcc-server", file=sys.stderr)
-        raise SystemExit(1)
+    owned_proxy = _ensure_proxy(settings)
+    try:
+        _exec_claude(settings, argv)
+    finally:
+        if owned_proxy is not None:
+            kill_pid_tree_best_effort(owned_proxy.pid)
+            unregister_pid(owned_proxy.pid)
+
+
+def _exec_claude(settings: Settings, argv: Sequence[str] | None) -> None:
+    """Run Claude Code in the foreground (proxy reachability already ensured)."""
 
     args = list(sys.argv[1:] if argv is None else argv)
     claude_command = shutil.which(settings.claude_cli_bin)
