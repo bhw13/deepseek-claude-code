@@ -66,7 +66,16 @@ Paste your key into `DEEPSEEK_API_KEY`, then click **Validate** → **Apply**. (
 uv run ds
 ```
 
-`ds` starts the DeepSeek-routed proxy and launches Claude Code together, then stops the proxy when you exit. To get a global `ds` command (no `uv run` prefix), install it once with `uv tool install .`.
+`ds` starts the DeepSeek-routed proxy and launches Claude Code together, then stops the proxy when you exit.
+
+For a global install (no `uv run` prefix), run `uv tool install .` once. That puts two commands on your `PATH`:
+
+| Command | What it does |
+| ------- | ------------ |
+| `ds`    | Start the DeepSeek-routed proxy **and** launch Claude Code; stop the proxy on exit. |
+| `cc`    | Launch Claude Code against the proxy — auto-starting one if none is running, or reusing the one `ds` already started. |
+
+Use `ds` for your first terminal, then `cc` in any additional terminals to attach more Claude Code sessions to the same proxy — they automatically [share context](#shared-context-across-terminals).
 
 ## How `ds` maps models
 
@@ -82,7 +91,7 @@ Tune effort per tier with `MODEL_EFFORT` / `MODEL_OPUS_EFFORT` / `MODEL_SONNET_E
 
 ## Shared context across terminals
 
-Run more than one session at once — two `ds` terminals, or `ds` in one and `fcc-claude` in another — and they automatically share what each is working on. Whoever starts first launches the proxy; the others connect to the same one, and a one-line note of each session's current prompt is shared with the rest so the models stay consistent across terminals.
+Run more than one session at once — two `ds` terminals, or `ds` in one and `cc` in another — and they automatically share what each is working on. Whoever starts first launches the proxy; the others connect to the same one, and a one-line note of each session's current prompt is shared with the rest so the models stay consistent across terminals.
 
 - **Automatic.** Each fresh prompt is published to the other live sessions and surfaced to them as read-only background context — no commands, no copy-paste.
 - **Ephemeral by design.** Notes live in the proxy's memory only. Nothing is written to disk, so context never persists across runs and can't accumulate or bloat — it all disappears when the proxy stops.
