@@ -10,20 +10,20 @@ readme = "README.md"
 requires-python = ">=3.14.0"
 dependencies = [
     "fastapi[standard]>=0.136.3",
-    "uvicorn>=0.48.0",
+    "uvicorn>=0.49.0",
     "httpx[socks]>=0.28.1",
     "markdown-it-py>=4.2.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "tiktoken>=0.13.0",
-    "python-telegram-bot>=22.7",
+    "python-telegram-bot>=22.8",
     "discord.py>=2.7.1",
-    "pydantic-settings>=2.14.1",
-    "openai>=2.38.0",
+    "pydantic-settings>=2.14.2",
+    "openai>=2.44.0",
     "loguru>=0.7.0",
-    "aiohttp>=3.13.4",
+    "aiohttp>=3.14.1",
     "jsonschema>=4.25.0",
-    "filelock>=3.24.2",
+    "filelock>=3.29.4",
 ]
 
 [project.scripts]
@@ -38,14 +38,14 @@ fcc-uninstall-hooks = "cli.entrypoints:uninstall_context_hooks"
 
 [project.optional-dependencies]
 voice = [
-    "grpcio>=1.80.0",
-    "grpcio-tools>=1.80.0",
+    "grpcio>=1.81.1",
+    "grpcio-tools>=1.81.1",
     "nvidia-riva-client>=2.26.0",
 ]
 voice_local = [
-    "torch>=2.12.0",
-    "transformers>=5.9.0",
-    "accelerate>=1.13.0",
+    "torch>=2.12.1",
+    "transformers>=5.12.1",
+    "accelerate>=1.14.0",
     "librosa>=0.10.0",
 ]
 
@@ -68,11 +68,11 @@ explicit = true
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
+    "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "ty>=0.0.40",
-    "ruff>=0.15.15",
+    "ty>=0.0.53",
+    "ruff>=0.15.19",
     "pytest-xdist>=3.8.0",
 ]
 
